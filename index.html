@@ -12,7 +12,6 @@
         .header-titulos h1 { margin: 0; font-size: 1.5rem; }
         .badge-pedidos { background: var(--danger); padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 1.2rem; }
 
-        /* Botón de Voz */
         .btn-voz { margin-top: 8px; padding: 6px 15px; border-radius: 20px; border: none; background: var(--warning); color: white; font-weight: bold; cursor: pointer; transition: 0.3s; font-size: 0.85rem; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
         .btn-voz.activada { background: var(--success); }
 
@@ -23,8 +22,9 @@
 
         .pedido-fecha { font-size: 0.8rem; color: #888; text-align: right; margin-bottom: 10px; display: block; font-weight: bold; }
         .cliente-info h2 { margin: 0 0 5px 0; color: var(--primary); font-size: 1.2rem; }
-        .cliente-info p { margin: 2px 0; font-size: 0.9rem; color: #555; }
-        .ref-pago { background: #e8f8f5; color: #117a65; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-weight: bold; }
+        .cliente-info p { margin: 4px 0; font-size: 0.95rem; color: #444; }
+        .link-tel { color: var(--primary); font-weight: bold; text-decoration: none; padding: 2px 6px; background: #e8f8f5; border-radius: 4px; }
+        .badge-entrega { color: #d35400; font-weight: bold; }
 
         .caja-capture { margin-top: 15px; text-align: center; background: #fafafa; padding: 10px; border-radius: 8px; border: 1px dashed #ccc; }
         .caja-capture img { width: 100%; max-height: 300px; object-fit: contain; border-radius: 6px; cursor: zoom-in; border: 1px solid #eee; transition: all 0.3s ease; }
@@ -34,13 +34,14 @@
             background: rgba(0,0,0,0.9); z-index: 9999; padding: 20px; box-sizing: border-box; border-radius: 0; cursor: zoom-out;
         }
 
-        .lista-productos { background: #f9f9f9; border-radius: 8px; padding: 10px; margin: 15px 0; }
+        .lista-productos { background: #f9f9f9; border-radius: 8px; padding: 10px; margin: 15px 0; border: 1px solid #eee;}
         .item-producto { display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 5px 0; font-size: 0.9rem; }
+        .item-producto:last-child { border-bottom: none; }
         
-        .totales { display: flex; justify-content: space-between; align-items: center; border-top: 2px dashed #eee; padding-top: 10px; margin-bottom: 15px; }
+        .totales { display: flex; justify-content: space-between; align-items: center; border-top: 2px dashed #ddd; padding-top: 10px; margin-bottom: 15px; }
         .totales .usd { font-size: 1.3rem; font-weight: bold; color: var(--primary); }
 
-        .btn-despachar { width: 100%; padding: 12px; background: var(--success); color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        .btn-despachar { width: 100%; padding: 14px; background: var(--success); color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; font-size: 1rem; box-shadow: 0 4px 6px rgba(39, 174, 96, 0.2); }
         .btn-despachar:active { transform: scale(0.95); }
     </style>
 </head>
@@ -77,11 +78,9 @@
         const contenedor = document.getElementById('contenedor-pedidos');
         const contador = document.getElementById('contador-pedidos');
 
-        // Variables para la voz
         let vozActivada = false;
         let cargaInicial = true; 
 
-        // Función para activar/desactivar la voz
         window.toggleVoz = () => {
             vozActivada = !vozActivada;
             const btn = document.getElementById('btn-voz');
@@ -93,6 +92,137 @@
                 btn.innerHTML = "🔇 Activar Alerta de Voz";
                 btn.classList.remove('activada');
             }
+        };
+
+        function hablar(texto) {
+            if ('speechSynthesis' in window && vozActivada) {
+                const mensaje = new SpeechSynthesisUtterance(texto);
+                mensaje.lang = 'es-ES'; 
+                mensaje.rate = 0.9; 
+                window.speechSynthesis.speak(mensaje);
+            }
+        }
+
+        function obtenerValorDeFecha(fechaStr) {
+            if (!fechaStr) return 0;
+            const numeros = fechaStr.match(/\d+/g);
+            if (numeros && numeros.length >= 3) {
+                let [d, m, y, h, min, s] = numeros.map(Number);
+                h = h || 0; min = min || 0; s = s || 0;
+                if (fechaStr.toLowerCase().includes('p') && h < 12) h += 12; 
+                if (fechaStr.toLowerCase().includes('a') && h === 12) h = 0; 
+                let mes = m, dia = d;
+                if (d > 12) { mes = m; dia = d; }
+                return new Date(y, mes - 1, dia, h, min, s).getTime();
+            }
+            return 0;
+        }
+
+        onSnapshot(collection(db, "pedidos"), (snapshot) => {
+            if (snapshot.empty) {
+                contenedor.innerHTML = '<div style="grid-column: 1/-1; text-align:center; padding: 50px; font-size:1.2rem; color:#666;">🎉 ¡No hay pedidos pendientes por despachar!</div>';
+                contador.innerText = "0"; 
+                cargaInicial = false;
+                return;
+            }
+
+            const arrayPedidos = [];
+            snapshot.forEach((documento) => {
+                arrayPedidos.push({ id: documento.id, data: documento.data() });
+            });
+
+            // Ordenar del más nuevo al más viejo
+            arrayPedidos.sort((a, b) => {
+                return obtenerValorDeFecha(b.data.fecha) - obtenerValorDeFecha(a.data.fecha);
+            });
+
+            contenedor.innerHTML = "";
+            arrayPedidos.forEach((pedido) => {
+                const data = pedido.data;
+                const totalBs = (data.total * (data.tasaAplicada || 1)).toFixed(2);
+
+                let productosHTML = "";
+                if(data.productos) {
+                    data.productos.forEach(prod => {
+                        productosHTML += `<div class="item-producto"><span><b>${prod.cantidad}x</b> ${prod.nombre}</span><span>$${(prod.precio * prod.cantidad).toFixed(2)}</span></div>`;
+                    });
+                }
+
+                let imagenHTML = "";
+                if (data.imagenBase64 && data.imagenBase64 !== "N/A" && data.imagenBase64.length > 50) {
+                    imagenHTML = `
+                        <div class="caja-capture">
+                            <p style="font-size: 0.85rem; margin-top:0; color: var(--primary); font-weight:bold;">📸 Comprobante de pago:</p>
+                            <img src="${data.imagenBase64}" alt="Capture" onclick="toggleImagen(this)">
+                            <p style="font-size: 0.7rem; color: #888; margin-bottom:0;">(Toca la imagen para ampliar o cerrar)</p>
+                        </div>`;
+                } else if (data.metodo === 'C2P Banco de Venezuela') {
+                    imagenHTML = `<div class="caja-capture" style="background:#eef5fb; border-color:#cce0ff;"><p style="font-size: 0.85rem; margin:0; color: var(--bdv); font-weight:bold;">💳 Pago C2P BDV Automático</p><small>No requiere comprobante manual.</small></div>`;
+                } else {
+                    imagenHTML = `<div class="caja-capture" style="background:#fdedec; border-color:#e74c3c;"><p style="font-size: 0.85rem; margin:0; color: var(--danger); font-weight:bold;">⚠️ No se adjuntó comprobante en este pedido.</p></div>`;
+                }
+
+                // Dar formato al texto de dirección (Saber si es retiro o delivery)
+                let textoDireccion = data.direccion || 'Retiro en Tienda';
+                if (textoDireccion.includes("Pasa buscando")) {
+                    textoDireccion = "🏪 Retiro en Tienda";
+                } else {
+                    textoDireccion = "🚚 " + textoDireccion;
+                }
+
+                const tarjeta = document.createElement('div');
+                tarjeta.className = 'tarjeta-pedido';
+                tarjeta.innerHTML = `
+                    <span class="pedido-fecha">📅 ${data.fecha || 'Reciente'}</span>
+                    <div class="cliente-info">
+                        <h2>👤 ${data.cliente}</h2>
+                        <p><b>🆔 Cédula:</b> ${data.cedula}</p>
+                        <p><b>📱 Contacto:</b> <a href="tel:${data.telefono || ''}" class="link-tel">${data.telefono || 'No especificado'}</a></p>
+                        <p><b>📍 Entrega:</b> <span class="badge-entrega">${textoDireccion}</span></p>
+                    </div>
+                    
+                    ${imagenHTML} 
+                    
+                    <div class="lista-productos">${productosHTML}</div>
+                    
+                    <div class="totales">
+                        <span class="usd">Total: $${parseFloat(data.total).toFixed(2)}</span>
+                        <b style="color:var(--success)">Bs. ${totalBs}</b>
+                    </div>
+                    <button class="btn-despachar" onclick="despacharPedido('${pedido.id}')">✅ MARCAR COMO DESPACHADO</button>
+                `;
+                contenedor.appendChild(tarjeta);
+            });
+            
+            contador.innerText = arrayPedidos.length;
+
+            snapshot.docChanges().forEach((change) => {
+                if (change.type === "added" && !cargaInicial) {
+                    const data = change.doc.data();
+                    let textoVoz = `Llegó un pedido de ${data.cliente}. `;
+                    if (data.productos && data.productos.length > 0) {
+                        const listaHablada = data.productos.map(p => `${p.cantidad} ${p.nombre}`);
+                        textoVoz += `Los productos son: ${listaHablada.join(", ")}.`;
+                    }
+                    hablar(textoVoz);
+                }
+            });
+
+            cargaInicial = false; 
+        });
+
+        window.toggleImagen = (img) => {
+            img.classList.toggle('ampliada');
+        };
+
+        window.despacharPedido = async (id) => {
+            if(confirm("¿Seguro que ya entregaste este pedido? Se borrará de la lista permanentemente.")) {
+                try { await deleteDoc(doc(db, "pedidos", id)); } catch (e) { alert("Error: " + e); }
+            }
+        };
+    </script>
+</body>
+</html>            }
         };
 
         // Función para hablar
