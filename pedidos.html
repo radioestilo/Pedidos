@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Pedidos - Bodega Virtual</title>
+    <style>
+        :root { --primary: #2c3e50; --success: #27ae60; --danger: #e74c3c; --bg: #f4f4f9; }
+        body { font-family: 'Segoe UI', sans-serif; background-color: var(--bg); margin: 0; padding: 20px; }
+        
+        .header { background: var(--primary); color: white; padding: 15px 20px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .header h1 { margin: 0; font-size: 1.5rem; }
+        .badge-pedidos { background: var(--danger); padding: 5px 12px; border-radius: 20px; font-size: 1rem; font-weight: bold; }
+
+        #contenedor-pedidos { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+
+        .tarjeta-pedido { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); position: relative; border-left: 5px solid var(--success); }
+        
+        .pedido-fecha { font-size: 0.8rem; color: #888; text-align: right; margin-bottom: 10px; display: block; }
+        .cliente-info { margin-bottom: 15px; }
+        .cliente-info h2 { margin: 0 0 5px 0; color: var(--primary); font-size: 1.2rem; }
+        .cliente-info p { margin: 2px 0; font-size: 0.9rem; color: #555; }
+        .ref-pago { background: #e8f8f5; color: #117a65; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-weight: bold; font-size: 1rem; display: inline-block; margin-top: 5px; }
+
+        .lista-productos { background: #f9f9f9; border-radius: 8px; padding: 10px; margin-bottom: 15px; }
+        .item-producto { display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 5px 0; font-size: 0.9rem; color: #333; }
+        .item-producto:last-child { border-bottom: none; }
+        
+        .totales { display: flex; justify-content: space-between; align-items: center; border-top: 2px dashed #eee; padding-top: 10px; margin-bottom: 15px; }
+        .totales .usd { font-size: 1.3rem; font-weight: bold; color: var(--primary); }
+        .totales .bs { font-size: 1rem; font-weight: bold; color: var(--success); }
+
+        .btn-despachar { width: 100%; padding: 12px; background: var(--success); color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 1rem; cursor: pointer; transition: 0.2s; }
+        .btn-despachar:hover { background: #1e8449; }
+        
+        .sin-pedidos { grid-column: 1 / -1; text-align: center; color: #888; padding: 50px; font-size: 1.2rem; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>📦 Pedidos Entrantes</h1>
+        <div class="badge-pedidos" id="contador-pedidos">0</div>
+    </div>
+
+    <div id="contenedor-pedidos">
+        <div class="sin-pedidos">Cargando pedidos...</div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+        import { getFirestore, collection, onSnapshot, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+
+        // Misma configuración de tu app
+        const firebaseConfig = {
+            apiKey: "AIzaSyD73Fli73cewNUX-Rj6YeZKlb97AcMrqL0",
+            authDomain: "bodega-virtual-3e69b.firebaseapp.com",
+            projectId: "bodega-virtual-3e69b",
+            storageBucket: "bodega-virtual-3e69b.firebasestorage.app",
+            messagingSenderId: "889100967352",
+            appId: "1:889100967352:web:c626d959183115806d834d"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        const contenedor = document.getElementById('contenedor-pedidos');
+        const contador = document.getElementById('contador-pedidos');
+
+        // Escuchar la colección "pedidos" en tiempo real
+        onSnapshot(collection(db, "pedidos"), (snapshot) => {
+            if (snapshot.empty) {
+                contenedor.innerHTML = '<div class="sin-pedidos">🎉 ¡No hay pedidos pendientes por ahora!</div>';
+                contador.innerText = "0";
+                return;
+            }
+
+            contenedor.innerHTML = "";
+            let numPedidos = 0;
+
+            snapshot.forEach((documento) => {
+                numPedidos++;
+                const data = documento.data();
+                
+                // Calcular el equivalente en Bs si guardaste la tasa
+                const tasa = data.tasaAplicada || 1;
+                const totalBs = (data.total * tasa).toFixed(2);
+
+                // Generar la lista de productos comprados
+                let productosHTML = "";
+                if(data.productos && Array.isArray(data.productos)) {
+                    data.productos.forEach(prod => {
+                        productosHTML += `
+                            <div class="item-producto">
+                                <span><b>${prod.cantidad}x</b> ${prod.nombre}</span>
+                                <span>$${(prod.precio * prod.cantidad).toFixed(2)}</span>
+                            </div>
+                        `;
+                    });
+                }
+
+                // Crear la tarjeta del pedido
+                const tarjeta = document.createElement('div');
+                tarjeta.className = 'tarjeta-pedido';
+                tarjeta.innerHTML = `
+                    <span class="pedido-fecha">📅 ${data.fecha || 'Reciente'}</span>
+                    
+                    <div class="cliente-info">
+                        <h2>👤 ${data.cliente}</h2>
+                        <p><b>Cédula:</b> ${data.cedula}</p>
+                        <p><b>Dirección:</b> ${data.direccion || 'Retiro en tienda'}</p>
+                        <p>Ref: <span class="ref-pago">${data.pago}</span></p>
+                    </div>
+
+                    <div class="lista-productos">
+                        ${productosHTML}
+                    </div>
+
+                    <div class="totales">
+                        <span class="usd">Total: $${parseFloat(data.total).toFixed(2)}</span>
+                        <span class="bs">Bs. ${totalBs}</span>
+                    </div>
+
+                    <button class="btn-despachar" onclick="despacharPedido('${documento.id}')">
+                        ✅ MARCAR COMO DESPACHADO
+                    </button>
+                `;
+
+                contenedor.appendChild(tarjeta);
+            });
+
+            contador.innerText = numPedidos;
+        });
+
+        // Función para borrar el pedido una vez entregado
+        window.despacharPedido = async (id) => {
+            if(confirm("¿Seguro que ya entregaste este pedido? Se borrará de la lista.")) {
+                try {
+                    await deleteDoc(doc(db, "pedidos", id));
+                } catch (error) {
+                    alert("Error al intentar despachar: " + error);
+                }
+            }
+        };
+
+    </script>
+</body>
+</html>
